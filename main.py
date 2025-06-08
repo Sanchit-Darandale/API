@@ -14,10 +14,8 @@ def extract_download_url(video_url: str, format_code: str) -> str:
     }
     with yt_dlp.YoutubeDL(ydl_opts) as ydl:
         info = ydl.extract_info(video_url, download=False)
-        # For combined audio+video formats
         if 'url' in info:
             return info['url']
-        # For formats with separate audio/video
         elif 'requested_formats' in info:
             return info['requested_formats'][0]['url']
         raise Exception("Download URL could not be extracted.")
@@ -32,7 +30,7 @@ def stream_file(url: str, filename: str, media_type: str):
         }
     )
 
-@app.get("/video/{quality}/{video_url}")
+@app.get("/video/{quality}/{video_url:path}")
 def download_video(quality: int, video_url: str):
     video_url = unquote(video_url)
     format_map = {
@@ -48,7 +46,7 @@ def download_video(quality: int, video_url: str):
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-@app.get("/audio/{video_url}")
+@app.get("/audio/{video_url:path}")
 def download_audio(video_url: str):
     video_url = unquote(video_url)
     try:
@@ -56,4 +54,4 @@ def download_audio(video_url: str):
         return stream_file(download_url, "audio.m4a", "audio/m4a")
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
-      
+        
