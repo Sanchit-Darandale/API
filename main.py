@@ -6,8 +6,11 @@ import yt_dlp
 
 app = FastAPI(title="YouTube Downloader API")
 
+coo = 'cookies.txt'
+
 def extract_download_url(video_url: str, format_code: str) -> str:
     ydl_opts = {
+        'cookiefile': coo,
         'quiet': True,
         'format': format_code,
         'skip_download': True,
