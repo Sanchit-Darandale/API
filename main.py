@@ -1,60 +1,73 @@
-from fastapi import FastAPI, HTTPException
-from fastapi.responses import StreamingResponse
-from urllib.parse import unquote
-import requests
-import yt_dlp
+from fastapi import FastAPI, Query
+from fastapi.responses import FileResponse, JSONResponse
+import subprocess
+import uuid
+import os
 
-app = FastAPI(title="YouTube Downloader API")
+app = FastAPI()
 
-coo = 'cookies.txt'
 
-def extract_download_url(video_url: str, format_code: str) -> str:
-    ydl_opts = {
-        'cookiefile': coo,
-        'quiet': True,
-        'format': format_code,
-        'skip_download': True,
-    }
-    with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-        info = ydl.extract_info(video_url, download=False)
-        if 'url' in info:
-            return info['url']
-        elif 'requested_formats' in info:
-            return info['requested_formats'][0]['url']
-        raise Exception("Download URL could not be extracted.")
+@app.get("/audio/")
+async def download_audio(url: str = Query(..., alias="url")):
+    try:
+        uid = str(uuid.uuid4())
+        filename = f"{uid}.mp3"
+        output_path = f"/tmp/{filename}"
 
-def stream_file(url: str, filename: str, media_type: str):
-    r = requests.get(url, stream=True)
-    return StreamingResponse(
-        r.iter_content(chunk_size=8192),
-        media_type=media_type,
-        headers={
-            "Content-Disposition": f"attachment; filename={filename}"
+        cmd = [
+            "yt-dlp",
+            "-f", "bestaudio",
+            "--extract-audio",
+            "--audio-format", "mp3",
+            "--cookies", "cookies.txt",
+            "-o", output_path,
+            url
+        ]
+
+        subprocess.run(cmd, check=True)
+        if os.path.exists(output_path):
+            return FileResponse(output_path, filename=filename, media_type="audio/mpeg")
+        else:
+            return JSONResponse(status_code=500, content={"detail": "Download failed"})
+
+    except subprocess.CalledProcessError as e:
+        return JSONResponse(status_code=500, content={"detail": str(e)})
+    except Exception as e:
+        return JSONResponse(status_code=500, content={"detail": str(e)})
+
+
+@app.get("/video/")
+async def download_video(url: str = Query(..., alias="url"), quality: str = "720"):
+    try:
+        uid = str(uuid.uuid4())
+        filename = f"{uid}.mp4"
+        output_path = f"/tmp/{filename}"
+
+        format_map = {
+            "360": "18",    # mp4 360p
+            "480": "135+140",  # video+audio
+            "720": "22",    # mp4 720p
+            "1080": "137+140"  # bestvideo+bestaudio
         }
-    )
 
-@app.get("/video/{quality}/{video_url:path}")
-def download_video(quality: int, video_url: str):
-    video_url = unquote(video_url)
-    format_map = {
-        480: "bestvideo[height<=480]+bestaudio[ext=m4a]/best[height<=480]",
-        720: "bestvideo[height<=720]+bestaudio[ext=m4a]/best[height<=720]",
-        1080: "bestvideo[height<=1080]+bestaudio[ext=m4a]/best[height<=1080]",
-    }
-    if quality not in format_map:
-        raise HTTPException(status_code=400, detail="Unsupported video quality")
-    try:
-        download_url = extract_download_url(video_url, format_map[quality])
-        return stream_file(download_url, f"video_{quality}p.mp4", "video/mp4")
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        yt_format = format_map.get(quality, "22")
 
-@app.get("/audio/{video_url:path}")
-def download_audio(video_url: str):
-    video_url = unquote(video_url)
-    try:
-        download_url = extract_download_url(video_url, "bestaudio[ext=m4a]/bestaudio")
-        return stream_file(download_url, "audio.m4a", "audio/m4a")
+        cmd = [
+            "yt-dlp",
+            "-f", yt_format,
+            "--merge-output-format", "mp4",
+            "--cookies", "cookies.txt",
+            "-o", output_path,
+            url
+        ]
+
+        subprocess.run(cmd, check=True)
+        if os.path.exists(output_path):
+            return FileResponse(output_path, filename=filename, media_type="video/mp4")
+        else:
+            return JSONResponse(status_code=500, content={"detail": "Download failed"})
+
+    except subprocess.CalledProcessError as e:
+        return JSONResponse(status_code=500, content={"detail": str(e)})
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-        
+        return JSONResponse(status_code=500, content={"detail": str(e)})
