@@ -1,73 +1,53 @@
-from fastapi import FastAPI, Query
+from fastapi import FastAPI, Path
 from fastapi.responses import FileResponse, JSONResponse
-import subprocess
-import uuid
+from yt_dlp import YoutubeDL
 import os
+import uuid
 
 app = FastAPI()
 
+COOKIES_PATH = os.path.join(os.path.dirname(__file__), "cookies.txt")
+TMP_DIR = "/tmp"
 
-@app.get("/audio/")
-async def download_audio(url: str = Query(..., alias="url")):
+@app.get("/audio/{video_url:path}")
+async def download_audio(video_url: str):
+    file_id = f"{uuid.uuid4()}.mp3"
+    output_path = os.path.join(TMP_DIR, file_id)
+
+    ydl_opts = {
+        "format": "bestaudio",
+        "outtmpl": output_path,
+        "cookiefile": COOKIES_PATH,
+        "postprocessors": [{
+            "key": "FFmpegExtractAudio",
+            "preferredcodec": "mp3",
+            "preferredquality": "192",
+        }],
+        "quiet": True,
+    }
+
     try:
-        uid = str(uuid.uuid4())
-        filename = f"{uid}.mp3"
-        output_path = f"/tmp/{filename}"
-
-        cmd = [
-            "yt-dlp",
-            "-f", "bestaudio",
-            "--extract-audio",
-            "--audio-format", "mp3",
-            "--cookies", "cookies.txt",
-            "-o", output_path,
-            url
-        ]
-
-        subprocess.run(cmd, check=True)
-        if os.path.exists(output_path):
-            return FileResponse(output_path, filename=filename, media_type="audio/mpeg")
-        else:
-            return JSONResponse(status_code=500, content={"detail": "Download failed"})
-
-    except subprocess.CalledProcessError as e:
-        return JSONResponse(status_code=500, content={"detail": str(e)})
+        with YoutubeDL(ydl_opts) as ydl:
+            ydl.download([video_url])
+        return FileResponse(output_path, media_type="audio/mpeg", filename="audio.mp3")
     except Exception as e:
         return JSONResponse(status_code=500, content={"detail": str(e)})
 
+@app.get("/video/{video_url:path}")
+async def download_video(video_url: str):
+    file_id = f"{uuid.uuid4()}.mp4"
+    output_path = os.path.join(TMP_DIR, file_id)
 
-@app.get("/video/")
-async def download_video(url: str = Query(..., alias="url"), quality: str = "720"):
+    ydl_opts = {
+        "format": "best[ext=mp4]",
+        "outtmpl": output_path,
+        "cookiefile": COOKIES_PATH,
+        "quiet": True,
+    }
+
     try:
-        uid = str(uuid.uuid4())
-        filename = f"{uid}.mp4"
-        output_path = f"/tmp/{filename}"
-
-        format_map = {
-            "360": "18",    # mp4 360p
-            "480": "135+140",  # video+audio
-            "720": "22",    # mp4 720p
-            "1080": "137+140"  # bestvideo+bestaudio
-        }
-
-        yt_format = format_map.get(quality, "22")
-
-        cmd = [
-            "yt-dlp",
-            "-f", yt_format,
-            "--merge-output-format", "mp4",
-            "--cookies", "cookies.txt",
-            "-o", output_path,
-            url
-        ]
-
-        subprocess.run(cmd, check=True)
-        if os.path.exists(output_path):
-            return FileResponse(output_path, filename=filename, media_type="video/mp4")
-        else:
-            return JSONResponse(status_code=500, content={"detail": "Download failed"})
-
-    except subprocess.CalledProcessError as e:
-        return JSONResponse(status_code=500, content={"detail": str(e)})
+        with YoutubeDL(ydl_opts) as ydl:
+            ydl.download([video_url])
+        return FileResponse(output_path, media_type="video/mp4", filename="video.mp4")
     except Exception as e:
         return JSONResponse(status_code=500, content={"detail": str(e)})
